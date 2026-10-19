@@ -62,7 +62,11 @@ Stdio stays attached to the original terminal. The launched agent receives its
 own foreground process group, so terminal Ctrl-C reaches it once. Direct
 SIGINT, SIGTERM, SIGHUP, SIGQUIT and SIGWINCH to the wrapper are forwarded once
 per tracked process group. The caller's file-creation mask is preserved for the
-agent; private ledger permissions do not change the agent's output permissions. End-of-session output avoids interrupting the
+agent; private ledger permissions do not change the agent's output permissions.
+When the foreground agent group stops (Ctrl-Z), the wrapper reclaims the terminal
+and stops too, returning control to the shell. `fg` gives the terminal back to
+the agent before continuing it. A background resume does not steal the terminal.
+Forwarded SIGTERM/SIGHUP are followed by SIGCONT so stopped descendants can exit. End-of-session output avoids interrupting the
 agent UI; long-lived descendants produce a periodic liveness message.
 
 `run` returns the agent's exit status by default. `--fail-on-alert` returns 1 on

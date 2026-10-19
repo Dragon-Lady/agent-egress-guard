@@ -172,9 +172,13 @@ async def run(command: list[str], ledger: Ledger, *, use_scope: bool | None = No
                 group = os.getpgid(child.pid)
                 if group == os.getpgrp():
                     child.send_signal(signum)
+                    if signum in (signal.SIGTERM, signal.SIGHUP):
+                        child.send_signal(signal.SIGCONT)
                 elif group not in groups:
                     groups.add(group)
                     os.killpg(group, signum)
+                    if signum in (signal.SIGTERM, signal.SIGHUP):
+                        os.killpg(group, signal.SIGCONT)
             except (ProcessLookupError, psutil.NoSuchProcess):
                 pass
 
@@ -187,6 +191,34 @@ async def run(command: list[str], ledger: Ledger, *, use_scope: bool | None = No
                 notes.append("terminal no longer available; foreground could not be restored")
             finally:
                 terminal_transferred = False
+
+    def relay_job_stop():
+        nonlocal terminal_transferred
+        if terminal_group is None or process is None:
+            return
+        # asyncio owns exit reaping. Inspect group state without stealing an
+        # exit status from its child watcher. A single paused worker must not
+        # suspend an otherwise running foreground job.
+        states = []
+        for member in tracker.members():
+            try:
+                if os.getpgid(member.pid) == process.pid:
+                    states.append(member.status())
+            except (ProcessLookupError, psutil.NoSuchProcess):
+                pass
+        if not states or any(state != psutil.STATUS_STOPPED for state in states):
+            return
+        reclaim_terminal()
+        # Tell the shell its foreground job stopped. Execution resumes here
+        # after fg/bg (SIGCONT). Only fg gives us ownership of the terminal.
+        os.kill(os.getpid(), signal.SIGSTOP)
+        try:
+            if foreground_group() == terminal_group:
+                set_foreground(process.pid)
+                terminal_transferred = True
+            os.killpg(process.pid, signal.SIGCONT)
+        except ProcessLookupError:
+            pass
 
     try:
         with Subreaper():
@@ -217,6 +249,7 @@ async def run(command: list[str], ledger: Ledger, *, use_scope: bool | None = No
             next_warning = time.monotonic() + warning_after
             attempts = 0
             while True:
+                relay_job_stop()
                 if scoped and tracker.scope_path is None and attempts < 10:
                     await asyncio.to_thread(tracker.scope, unit)
                     attempts += 1
