@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-egress-guard"
+version = "0.1.0.dev0"
+description = "Local, best-effort egress observation for coding-agent sessions."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+authors = [{name = "Dragon Lady"}]
+dependencies = ["psutil>=7.2.2,<8", "push-guard>=0.4.2,<0.5"]
+
+[project.optional-dependencies]
+inspect = ["mitmproxy>=12.2,<13; python_version >= '3.12'"]
+test = ["pytest==9.1.1"]
+
+[project.scripts]
+agent-egress-guard = "agent_egress_guard.cli:main"
+aeg = "agent_egress_guard.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Dragon-Lady/agent-egress-guard"
+Repository = "https://github.com/Dragon-Lady/agent-egress-guard"
+Issues = "https://github.com/Dragon-Lady/agent-egress-guard/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+agent_egress_guard = ["data/*.toml"]
