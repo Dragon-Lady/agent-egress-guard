@@ -45,6 +45,10 @@ jobs:
           deps = tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['dependencies']
           if 'push-guard>=0.4.3,<0.5' not in deps or Version(version('push-guard')) < Version('0.4.3'):
               raise SystemExit('release requires the reviewed Push Guard 0.4.3 minimum')
+          body = 'aB3dE5fG7hJ9kL2mN4pQ6rS8tU0vW1xY_-9'
+          google = 'AI' + 'za' + body + '.invalid'
+          if not any(f.rule_id == 'secret.google_api_key' for f in scan_text_for_secrets(google)):
+              raise SystemExit('installed Google-key protection is incomplete')
           for kind in ('proj', 'svcacct', 'admin', 'ant-api03', 'ant-admin01', 'ant-oat01', 'ant-ort01'):
               label = 's' + 'k-' + kind + '-' + 'Ab3dE5fG7hJ9kL2mN4pQ6rS8' + '.invalid'
               if not any(f.rule_id.startswith('secret.') for f in scan_text_for_secrets(label)):
