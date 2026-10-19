@@ -37,6 +37,15 @@ def check_private(path: Path, directory: bool = False) -> None:
 
 class Ledger:
     def __init__(self, root: Path | None = None):
+        # Older development builds can share a version number. Check capability
+        # before creating any state instead of silently accepting missing rules.
+        body = "aB3dE5fG7hJ9kL2mN4pQ6rS8tU0vW1xY_-9"
+        canaries = ["AI" + "za" + body] + [
+            "s" + "k-" + kind + "-" + body
+            for kind in ("proj", "svcacct", "admin", "ant-api03", "ant-admin01", "ant-oat01", "ant-ort01")
+        ]
+        if any(safe_label(value) != "<redacted>" for value in canaries):
+            raise StateError("Push Guard redaction capability is insufficient")
         self.root = root if root is not None else state_root()
         # Keep the caller's mask for agent launch; only the guard needs the
         # stricter mask for SQLite journal/temporary files.

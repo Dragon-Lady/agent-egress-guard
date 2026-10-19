@@ -103,7 +103,10 @@ See [threat model](docs/threat-model.md), [sandbox checks](docs/sandbox.md) and
 [review checklist](docs/review-checklist.md). All changes remain draft until
 reviewed and approved. Publication is disabled and separately gated.
 
-Label redaction follows the installed Push Guard version. The current published
-0.4.2 lacks extended provider-key coverage. A release of this draft is blocked
-until Push Guard 0.4.3 ships, the dependency minimum is raised, and label-canary
-tests pass against that installed release.
+Label redaction requires the reviewed Push Guard 0.4.3 development candidate.
+CI pins its source commit; install that candidate in an isolated environment for
+local draft tests. Startup refuses a dependency missing required provider rules.
+Google and extended-provider database canaries are mandatory, never skipped.
+Before release, publish the reviewed stable Push Guard 0.4.3, raise the minimum
+to that stable version, remove the CI source override and test the installed
+wheels. Publication remains blocked until those gates pass.

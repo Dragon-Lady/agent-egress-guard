@@ -33,7 +33,10 @@ release, verify the pypi environment's required reviewer, configure Trusted
 Publishing and private terms, review the stable-version diff and enable the
 release variable explicitly. No release is part of this draft.
 
-Dependency release gate: publish the reviewed Push Guard 0.4.3 first, then raise
-the runtime dependency minimum to 0.4.3 and run extended-provider label-canary
-tests against the installed wheel. The development draft can use 0.4.2, which
-does not provide those redaction patterns.
+Dependency release gate: publish the reviewed stable Push Guard 0.4.3 first,
+then raise the runtime minimum from 0.4.3.dev0 to 0.4.3, remove the pinned draft
+checkout from CI, and run all provider-label canaries against installed wheels.
+The draft requires the fixed candidate; it no longer accepts 0.4.2. Startup
+checks redaction capability before opening state, and tests never skip missing
+provider coverage. System-wide tool installation is independent of this isolated
+draft environment.

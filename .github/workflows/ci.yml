@@ -20,6 +20,17 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Check out reviewed draft redactor
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: Dragon-Lady/push-guard
+          ref: 87b1c8c210a6d6d8d584f49304157b5f1a321ac0
+          path: .ci-push-guard
+          persist-credentials: false
+      - name: Install reviewed draft redactor through Socket Firewall
+        run: |
+          sfw pip install ./.ci-push-guard
+          rm -rf .ci-push-guard
       - name: Install through Socket Firewall
         run: sfw pip install '.[test]' build==1.6.1 'setuptools>=77' wheel
       - name: Tests and compilation

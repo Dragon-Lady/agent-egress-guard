@@ -330,11 +330,34 @@ def test_namespace_probe_is_read_only(monkeypatch):
 def test_extended_provider_labels_are_redacted(ledger, kind):
     from push_guard import scan_text_for_secrets
     value = "s" + "k-" + kind + "-" + "Ab3dE5fG7hJ9kL2mN4pQ6rS8" + ".invalid"
-    if not any(f.rule_id.startswith("secret.") for f in scan_text_for_secrets(value)):
-        pytest.skip("draft dependency lacks provider shapes; publish gate requires reviewed 0.4.3")
+    assert any(f.rule_id.startswith("secret.") for f in scan_text_for_secrets(value))
     session = ledger.start("fixture", 0)
     ledger.connection(session, started=0, duration=0, host=value, port=443,
                       method="CONNECT", path_template="/", bytes_up=0, bytes_down=0,
                       pid=None, exe=value, status="ok", sni=value)
     assert ledger.db.execute("SELECT host,exe,sni FROM connections").fetchone() == ("<redacted>",) * 3
     assert value.encode() not in (ledger.root / "ledger.sqlite3").read_bytes()
+
+
+@pytest.mark.parametrize("prefix", ["", "_", r"\n", "%3D", "?key="])
+def test_google_labels_never_enter_database(ledger, prefix):
+    from agent_egress_guard.ledger import safe_label
+    body = "aB3dE5fG7hJ9kL2mN4pQ6rS8tU0vW1xY_-9"
+    value = "AI" + "za" + body
+    label = prefix + value + ".invalid"
+    assert safe_label(label) == "<redacted>"
+    session = ledger.start("fixture", 0)
+    ledger.connection(session, started=0, duration=0, host=label, port=443,
+                      method="CONNECT", path_template="/", bytes_up=0, bytes_down=0,
+                      pid=None, exe=label, status="ok", sni=label)
+    assert ledger.db.execute("SELECT host,exe,sni FROM connections").fetchone() == ("<redacted>",) * 3
+    assert value not in json.dumps(ledger.report())
+    assert value.encode() not in (ledger.root / "ledger.sqlite3").read_bytes()
+
+
+def test_inadequate_redaction_dependency_fails_before_storage(tmp_path, monkeypatch):
+    monkeypatch.setattr("agent_egress_guard.ledger.scan_text_for_secrets", lambda value: [])
+    root = tmp_path / "state"
+    with pytest.raises(StateError, match="redaction"):
+        Ledger(root)
+    assert not root.exists()
