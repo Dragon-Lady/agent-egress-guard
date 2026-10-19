@@ -35,6 +35,21 @@ jobs:
           if 'dev' in version or os.environ['GITHUB_REF_NAME'] != 'v' + version:
               raise SystemExit('a matching stable release tag is required')
           PY
+      - name: Require released provider-key protection
+        run: |
+          python - <<'PYCODE'
+          import pathlib, tomllib
+          from importlib.metadata import version
+          from packaging.version import Version
+          from push_guard import scan_text_for_secrets
+          deps = tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['dependencies']
+          if 'push-guard>=0.4.3,<0.5' not in deps or Version(version('push-guard')) < Version('0.4.3'):
+              raise SystemExit('release requires the reviewed Push Guard 0.4.3 minimum')
+          for kind in ('proj', 'svcacct', 'admin', 'ant-api03', 'ant-admin01', 'ant-oat01', 'ant-ort01'):
+              label = 's' + 'k-' + kind + '-' + 'Ab3dE5fG7hJ9kL2mN4pQ6rS8' + '.invalid'
+              if not any(f.rule_id.startswith('secret.') for f in scan_text_for_secrets(label)):
+                  raise SystemExit('installed provider-key protection is incomplete')
+          PYCODE
       - run: PYTHONPATH=src python -m pytest -q
       - run: push-guard scan --base origin/main --head HEAD --no-infer
       - run: python -m build --no-isolation

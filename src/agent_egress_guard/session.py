@@ -117,6 +117,23 @@ def reap_orphans() -> None:
             return
 
 
+def foreground_group() -> int | None:
+    try:
+        group = os.tcgetpgrp(0)
+        return group if group == os.getpgrp() else None
+    except OSError:
+        return None
+
+
+def set_foreground(group: int) -> None:
+    # A background wrapper must be able to reclaim the terminal after exit.
+    previous = signal.signal(signal.SIGTTOU, signal.SIG_IGN)
+    try:
+        os.tcsetpgrp(0, group)
+    finally:
+        signal.signal(signal.SIGTTOU, previous)
+
+
 async def run(command: list[str], ledger: Ledger, *, use_scope: bool | None = None,
               fail_on_alert: bool = False, warning_after: float = 30,
               proxy_type=Proxy) -> tuple[str, int]:
@@ -135,31 +152,68 @@ async def run(command: list[str], ledger: Ledger, *, use_scope: bool | None = No
     argv = ["systemd-run", "--user", "--scope", "--quiet", "--unit=" + unit, "--", *command] if scoped else command
     notes = []
     if preexisting(command[0]):
-        notes.append("pre-existing agent daemon; its traffic is not attributed")
+        notes.append("same executable already running; processes outside this session are not attributed")
     if not scoped:
         notes.append("user systemd scope unavailable; subreaper tracking is best-effort")
     old_handlers = {}
     process = None
     code = 3
     loop = asyncio.get_running_loop()
+    terminal_group = foreground_group()
+    terminal_transferred = False
 
     def forward(signum):
-        # Terminal input/output remains inherited. Forward to tracked children
-        # for direct signals as well as interactive interrupts; never other PIDs.
+        # Terminal-generated signals go directly to the foreground agent group.
+        # Direct signals to the wrapper reach each tracked group once, including
+        # detached descendants. Never signal the wrapper's own group recursively.
+        groups = set()
         for child in tracker.members():
             try:
-                child.send_signal(signum)
-            except psutil.NoSuchProcess:
+                group = os.getpgid(child.pid)
+                if group == os.getpgrp():
+                    child.send_signal(signum)
+                elif group not in groups:
+                    groups.add(group)
+                    os.killpg(group, signum)
+            except (ProcessLookupError, psutil.NoSuchProcess):
                 pass
+
+    def reclaim_terminal():
+        nonlocal terminal_transferred
+        if terminal_transferred:
+            try:
+                set_foreground(terminal_group)
+            except OSError:
+                notes.append("terminal no longer available; foreground could not be restored")
+            finally:
+                terminal_transferred = False
 
     try:
         with Subreaper():
-            for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGWINCH):
+            for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT, signal.SIGWINCH):
                 old_handlers[signum] = signal.getsignal(signum)
                 loop.add_signal_handler(signum, forward, signum)
-            # Inherit stdio and the foreground process group: no PTY emulation,
-            # command echoing, shell invocation or credential-bearing argv.
-            process = await asyncio.create_subprocess_exec(*argv, env=proxy_environment(port, credential))
+            # Use a distinct group while inheriting stdio. For a real terminal,
+            # handshake before exec prevents a read/SIGTTIN race at startup.
+            ready_read = ready_write = None
+            try:
+                launch = argv
+                if terminal_group is not None:
+                    ready_read, ready_write = os.pipe()
+                    launch = [sys.executable, str(Path(__file__).with_name("_launch.py")), str(ready_read), *argv]
+                process = await asyncio.create_subprocess_exec(
+                    *launch, env=proxy_environment(port, credential),
+                    process_group=0, umask=ledger.agent_umask,
+                    pass_fds=(() if ready_read is None else (ready_read,)),
+                )
+                if terminal_group is not None:
+                    set_foreground(process.pid)
+                    terminal_transferred = True
+                    os.write(ready_write, b"1")
+            finally:
+                for fd in (ready_read, ready_write):
+                    if fd is not None:
+                        os.close(fd)
             next_warning = time.monotonic() + warning_after
             attempts = 0
             while True:
@@ -168,6 +222,7 @@ async def run(command: list[str], ledger: Ledger, *, use_scope: bool | None = No
                     attempts += 1
                 if process.returncode is not None:
                     await process.wait()
+                    reclaim_terminal()
                     reap_orphans()
                     members = tracker.members()
                     if not members:
@@ -184,6 +239,7 @@ async def run(command: list[str], ledger: Ledger, *, use_scope: bool | None = No
     except OSError:
         raise StateError("agent launch failed; check executable availability") from None
     finally:
+        reclaim_terminal()
         for signum, old in old_handlers.items():
             loop.remove_signal_handler(signum)
             signal.signal(signum, old)

@@ -324,3 +324,17 @@ def test_namespace_probe_is_read_only(monkeypatch):
     assert result["reason"] == "user_namespace_restricted"
     assert len(calls) == 1 and calls[0][0] == "bwrap"
     assert "sysctl" not in calls[0]
+
+
+@pytest.mark.parametrize("kind", ["proj", "svcacct", "admin", "ant-api03", "ant-admin01", "ant-oat01", "ant-ort01"])
+def test_extended_provider_labels_are_redacted(ledger, kind):
+    from push_guard import scan_text_for_secrets
+    value = "s" + "k-" + kind + "-" + "Ab3dE5fG7hJ9kL2mN4pQ6rS8" + ".invalid"
+    if not any(f.rule_id.startswith("secret.") for f in scan_text_for_secrets(value)):
+        pytest.skip("draft dependency lacks provider shapes; publish gate requires reviewed 0.4.3")
+    session = ledger.start("fixture", 0)
+    ledger.connection(session, started=0, duration=0, host=value, port=443,
+                      method="CONNECT", path_template="/", bytes_up=0, bytes_down=0,
+                      pid=None, exe=value, status="ok", sni=value)
+    assert ledger.db.execute("SELECT host,exe,sni FROM connections").fetchone() == ("<redacted>",) * 3
+    assert value.encode() not in (ledger.root / "ledger.sqlite3").read_bytes()

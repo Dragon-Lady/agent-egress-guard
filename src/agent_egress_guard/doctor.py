@@ -17,8 +17,10 @@ INSPECT_HELP = (
     "`sfw pipx install --python python3.12 'agent-egress-guard[inspect]'`"
 )
 RESTRICTIONS = (
-    "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted",
-    "bwrap: setting up uid map: Permission denied",
+    "loopback: Failed RTM_NEWADDR",
+    "loopback: Failed RTM_NEWLINK",
+    "setting up uid map: Permission denied",
+    "No permissions to create a new namespace",
     "No permissions to create new namespace",
 )
 SYSCTLS = ("kernel/apparmor_restrict_unprivileged_userns", "kernel/unprivileged_userns_clone",
@@ -42,7 +44,8 @@ def namespace_probe() -> dict:
                                capture_output=True, text=True, timeout=5)
         result["available"] = probe.returncode == 0
         result["reason"] = "ok" if probe.returncode == 0 else "probe_failed"
-        if any(line in RESTRICTIONS for line in probe.stderr.splitlines()):
+        if any(reason in line.removeprefix("bwrap: ")
+               for line in probe.stderr.splitlines() for reason in RESTRICTIONS):
             result["reason"] = "user_namespace_restricted"
     except (OSError, subprocess.TimeoutExpired):
         result["reason"] = "probe_unavailable"
@@ -112,5 +115,5 @@ def print_doctor() -> int:
     if not result["inspect_dependency_available"]:
         print(INSPECT_HELP)
     print("Inspect and enforcement are not implemented in this draft. The probe tests Python urllib only.")
-    return 0 if (result["platform"] == "linux" and result["proxy_probe_python_urllib"]
-                 and result["namespace"]["available"] and result["inspect_dependency_available"]) else 3
+    print("Private intranet destinations are refused by the proxy; inherited NO_PROXY is replaced.")
+    return 0 if result["platform"] == "linux" and result["proxy_probe_python_urllib"] else 3

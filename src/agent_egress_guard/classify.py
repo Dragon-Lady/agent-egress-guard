@@ -1,4 +1,5 @@
 """Label-boundary destination classification, with no DNS or network calls."""
+from functools import cache
 from importlib.resources import files
 import tomllib
 
@@ -13,6 +14,11 @@ def label_match(host: str, pattern: str) -> bool:
     return len(labels) == len(parts) and all(p == "*" or p == h for h, p in zip(labels, parts))
 
 
-def host_class(host: str) -> str:
+@cache
+def storage_patterns() -> tuple[str, ...]:
     data = tomllib.loads(files("agent_egress_guard").joinpath("data/hosts.toml").read_text())
-    return "storage" if any(label_match(host, p) for p in data["storage"]) else "other"
+    return tuple(data["storage"])
+
+
+def host_class(host: str) -> str:
+    return "storage" if any(label_match(host, p) for p in storage_patterns()) else "other"

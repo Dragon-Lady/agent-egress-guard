@@ -32,3 +32,8 @@ Release gate: the publish workflow is disabled by default. Before an approved
 release, verify the pypi environment's required reviewer, configure Trusted
 Publishing and private terms, review the stable-version diff and enable the
 release variable explicitly. No release is part of this draft.
+
+Dependency release gate: publish the reviewed Push Guard 0.4.3 first, then raise
+the runtime dependency minimum to 0.4.3 and run extended-provider label-canary
+tests against the installed wheel. The development draft can use 0.4.2, which
+does not provide those redaction patterns.

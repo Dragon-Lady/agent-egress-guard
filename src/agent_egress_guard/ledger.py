@@ -38,8 +38,17 @@ def check_private(path: Path, directory: bool = False) -> None:
 class Ledger:
     def __init__(self, root: Path | None = None):
         self.root = root if root is not None else state_root()
-        # Process-wide private umask also protects SQLite journal/temporary files.
-        os.umask(0o077)
+        # Keep the caller's mask for agent launch; only the guard needs the
+        # stricter mask for SQLite journal/temporary files.
+        self.agent_umask = os.umask(0o077)
+        self._closed = False
+        try:
+            self._open()
+        except BaseException:
+            os.umask(self.agent_umask)
+            raise
+
+    def _open(self):
         self.root.mkdir(parents=True, mode=0o700, exist_ok=True)
         check_private(self.root, directory=True)
         path = self.root / "ledger.sqlite3"
@@ -102,4 +111,9 @@ class Ledger:
                 self.db.execute("SELECT id, started, ended, exit_code FROM sessions ORDER BY started DESC LIMIT ?", (limit,))]
 
     def close(self) -> None:
-        self.db.close()
+        if not self._closed:
+            try:
+                self.db.close()
+            finally:
+                os.umask(self.agent_umask)
+                self._closed = True
