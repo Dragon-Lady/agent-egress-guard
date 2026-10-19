@@ -58,7 +58,8 @@ the top-level command exits. Without a user manager, it falls back to subreaper
 tracking and says so. Existing daemons outside the session remain outside its
 coverage. A same-executable process check warns about possible existing daemons.
 
-Stdio stays attached to the original terminal. The launched agent receives its
+Stdio is inherited unchanged. Terminal ownership uses `/dev/tty`, so piped
+stdin and redirected output do not hide an attached controlling terminal. The launched agent receives its
 own foreground process group, so terminal Ctrl-C reaches it once. Direct
 SIGINT, SIGTERM, SIGHUP, SIGQUIT and SIGWINCH to the wrapper are forwarded once
 per tracked process group. The caller's file-creation mask is preserved for the
@@ -66,7 +67,12 @@ agent; private ledger permissions do not change the agent's output permissions.
 When the foreground agent group stops (Ctrl-Z), the wrapper reclaims the terminal
 and stops too, returning control to the shell. `fg` gives the terminal back to
 the agent before continuing it. A background resume does not steal the terminal.
-Forwarded SIGTERM/SIGHUP are followed by SIGCONT so stopped descendants can exit. End-of-session output avoids interrupting the
+Forwarded SIGTERM/SIGHUP/SIGINT/SIGQUIT are followed by SIGCONT so stopped
+descendants can receive the signal. While the wrapper itself is suspended, its
+proxy is suspended too; other detached groups can stall on proxy traffic until
+resume. An external TERM/HUP to a stopped wrapper remains pending until CONT;
+use the shell's job controls or send CONT as well. The temporary stopped status
+reflects SIGSTOP (147), while final agent exit status is preserved. End-of-session output avoids interrupting the
 agent UI; long-lived descendants produce a periodic liveness message.
 
 `run` returns the agent's exit status by default. `--fail-on-alert` returns 1 on

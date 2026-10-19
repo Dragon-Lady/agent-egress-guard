@@ -137,3 +137,42 @@ time.sleep(30)
         if proc.poll() is None:
             cleanup(proc.pid)
             proc.wait()
+
+
+@pytest.mark.parametrize('scope', [False, True])
+@pytest.mark.parametrize('redirect_outputs', [False, True])
+@pytest.mark.parametrize('finish', ['input', 'ctrl-c'])
+def test_piped_stdin_retains_controlling_terminal(tmp_path, scope, redirect_outputs, finish):
+    if scope and not systemd_available():
+        pytest.skip('user systemd manager unavailable')
+    driver, agent = tmp_path / 'driver.py', tmp_path / 'agent.py'
+    driver.write_text(DRIVER)
+    agent.write_text('''import os, signal, sys
+assert sys.stdin.read() == 'piped-input\\n'
+def interrupted(*args):
+    raise SystemExit(23)
+signal.signal(signal.SIGINT, interrupted)
+fd = os.open('/dev/tty', os.O_RDWR)
+os.write(fd, b'PIPE-AGENT-READY\\n')
+assert os.read(fd, 4096).strip() == b'finish'
+os.close(fd)
+raise SystemExit(17)
+''')
+    pid, master = pty.fork()
+    if pid == 0:
+        os.execve('/bin/bash', ['bash', '--noprofile', '--norc', '-i'], environment(tmp_path))
+    try:
+        read_until(master, b'FIXTURE-PROMPT> ')
+        command = "printf 'piped-input\\n' | " + shlex.join([
+            sys.executable, str(driver), str(tmp_path / 'ledger'), str(scope), str(agent)])
+        if redirect_outputs:
+            command += ' >' + shlex.quote(str(tmp_path / 'stdout')) + ' 2>' + shlex.quote(str(tmp_path / 'stderr'))
+        os.write(master, (command + '; printf "PIPE_EXIT=%s\\n" "$?"\n').encode())
+        read_until(master, b'PIPE-AGENT-READY\r\n')
+        os.write(master, b'finish\n' if finish == 'input' else b'\x03')
+        output = read_until(master, b'FIXTURE-PROMPT> ')
+        assert (b'PIPE_EXIT=17\r\n' if finish == 'input' else b'PIPE_EXIT=23\r\n') in output
+    finally:
+        cleanup(pid)
+        os.waitpid(pid, 0)
+        os.close(master)

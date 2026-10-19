@@ -117,19 +117,30 @@ def reap_orphans() -> None:
             return
 
 
-def foreground_group() -> int | None:
+def controlling_terminal() -> int | None:
+    # stdin may be a pipe and both output streams may be redirected. /dev/tty
+    # refers to this session's controlling terminal independently of all three.
     try:
-        group = os.tcgetpgrp(0)
+        return os.open("/dev/tty", os.O_RDWR | os.O_NOCTTY | os.O_CLOEXEC)
+    except OSError:
+        return None
+
+
+def foreground_group(fd: int | None) -> int | None:
+    if fd is None:
+        return None
+    try:
+        group = os.tcgetpgrp(fd)
         return group if group == os.getpgrp() else None
     except OSError:
         return None
 
 
-def set_foreground(group: int) -> None:
+def set_foreground(fd: int, group: int) -> None:
     # A background wrapper must be able to reclaim the terminal after exit.
     previous = signal.signal(signal.SIGTTOU, signal.SIG_IGN)
     try:
-        os.tcsetpgrp(0, group)
+        os.tcsetpgrp(fd, group)
     finally:
         signal.signal(signal.SIGTTOU, previous)
 
@@ -159,7 +170,8 @@ async def run(command: list[str], ledger: Ledger, *, use_scope: bool | None = No
     process = None
     code = 3
     loop = asyncio.get_running_loop()
-    terminal_group = foreground_group()
+    terminal_fd = controlling_terminal()
+    terminal_group = foreground_group(terminal_fd)
     terminal_transferred = False
 
     def forward(signum):
@@ -172,12 +184,12 @@ async def run(command: list[str], ledger: Ledger, *, use_scope: bool | None = No
                 group = os.getpgid(child.pid)
                 if group == os.getpgrp():
                     child.send_signal(signum)
-                    if signum in (signal.SIGTERM, signal.SIGHUP):
+                    if signum in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT, signal.SIGQUIT):
                         child.send_signal(signal.SIGCONT)
                 elif group not in groups:
                     groups.add(group)
                     os.killpg(group, signum)
-                    if signum in (signal.SIGTERM, signal.SIGHUP):
+                    if signum in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT, signal.SIGQUIT):
                         os.killpg(group, signal.SIGCONT)
             except (ProcessLookupError, psutil.NoSuchProcess):
                 pass
@@ -186,7 +198,7 @@ async def run(command: list[str], ledger: Ledger, *, use_scope: bool | None = No
         nonlocal terminal_transferred
         if terminal_transferred:
             try:
-                set_foreground(terminal_group)
+                set_foreground(terminal_fd, terminal_group)
             except OSError:
                 notes.append("terminal no longer available; foreground could not be restored")
             finally:
@@ -213,8 +225,8 @@ async def run(command: list[str], ledger: Ledger, *, use_scope: bool | None = No
         # after fg/bg (SIGCONT). Only fg gives us ownership of the terminal.
         os.kill(os.getpid(), signal.SIGSTOP)
         try:
-            if foreground_group() == terminal_group:
-                set_foreground(process.pid)
+            if foreground_group(terminal_fd) == terminal_group:
+                set_foreground(terminal_fd, process.pid)
                 terminal_transferred = True
             os.killpg(process.pid, signal.SIGCONT)
         except ProcessLookupError:
@@ -239,7 +251,7 @@ async def run(command: list[str], ledger: Ledger, *, use_scope: bool | None = No
                     pass_fds=(() if ready_read is None else (ready_read,)),
                 )
                 if terminal_group is not None:
-                    set_foreground(process.pid)
+                    set_foreground(terminal_fd, process.pid)
                     terminal_transferred = True
                     os.write(ready_write, b"1")
             finally:
@@ -273,6 +285,8 @@ async def run(command: list[str], ledger: Ledger, *, use_scope: bool | None = No
         raise StateError("agent launch failed; check executable availability") from None
     finally:
         reclaim_terminal()
+        if terminal_fd is not None:
+            os.close(terminal_fd)
         for signum, old in old_handlers.items():
             loop.remove_signal_handler(signum)
             signal.signal(signum, old)
