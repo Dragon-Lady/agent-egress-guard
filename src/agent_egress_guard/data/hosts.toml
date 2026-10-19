@@ -1,0 +1,7 @@
+storage = [
+  "storage.googleapis.com", "*.storage.googleapis.com",
+  "s3.amazonaws.com", "s3.*.amazonaws.com", "*.s3.amazonaws.com",
+  "*.s3.*.amazonaws.com", "*.s3-accelerate.amazonaws.com",
+  "*.blob.core.windows.net", "*.dfs.core.windows.net",
+  "*.r2.cloudflarestorage.com", "*.backblazeb2.com", "*.digitaloceanspaces.com",
+]
