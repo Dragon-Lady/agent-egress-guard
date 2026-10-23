@@ -2,21 +2,20 @@
 
 A local, Linux-first egress ledger for coding-agent sessions.
 
-Development is in draft pull requests. No release is available yet. This first
-draft records connections through an authenticated loopback proxy. It does not
+Version 0.1.0 records connections through an authenticated loopback proxy. It does not
 decrypt TLS, inspect bodies, detect proxy bypasses, or enforce an egress policy.
 
 **Observe mode is best-effort:** traffic that ignores proxy settings can be
 missed. Observed bytes are not total egress. No recorded connections is not
 proof that no data left the machine. Enforcement is a later stage, not a
-working `--block` switch in this draft.
+working `--block` switch in this release.
 
-## Development install
+## Install
 
-From a reviewed checkout, using Python 3.11 or newer:
+Using Python 3.11 or newer:
 
 ```sh
-sfw pipx install .
+sfw pipx install agent-egress-guard==0.1.0
 aeg doctor
 aeg run -- your-agent-command
 aeg report last
@@ -27,7 +26,7 @@ aeg sessions
 Both `aeg` and `agent-egress-guard` are installed. The `inspect` extra is reserved
 for a later implementation; installing it does not enable inspection today.
 
-## What the first draft records
+## What observe mode records
 
 One private SQLite store contains session times, destination hostname and port,
 connection byte counts, best-effort PID/executable basename, and storage-host
@@ -100,13 +99,10 @@ Missing optional inspection or namespace capabilities are reported separately. T
   the next draft. TLS inspection, CAs and confinement are later stages.
 
 See [threat model](docs/threat-model.md), [sandbox checks](docs/sandbox.md) and
-[review checklist](docs/review-checklist.md). All changes remain draft until
-reviewed and approved. Publication is disabled and separately gated.
+[review checklist](docs/review-checklist.md). Publication uses a separately gated
+Trusted Publishing workflow.
 
-Label redaction requires the reviewed Push Guard 0.4.3 development candidate.
-CI pins its source commit; install that candidate in an isolated environment for
-local draft tests. Startup refuses a dependency missing required provider rules.
-Google and extended-provider database canaries are mandatory, never skipped.
-Before release, publish the reviewed stable Push Guard 0.4.3, raise the minimum
-to that stable version, remove the CI source override and test the installed
-wheels. Publication remains blocked until those gates pass.
+Label redaction requires published Push Guard >=0.4.3,<0.5. CI tests the installed
+stable dependency and requires private-term scans of the complete distributions.
+Startup refuses a dependency missing required provider rules. Google and
+extended-provider database canaries are mandatory, never skipped.
